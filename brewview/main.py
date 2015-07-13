@@ -20,9 +20,9 @@ def to_dict(model):
             ms = time.mktime(value.utctimetuple()) * 1000
             ms += getattr(value, 'microseconds', 0) / 1000
             output[key] = int(ms)
-        elif isinstance(value, db.GeoPt):
+        elif isinstance(value, ndb.GeoPt):
             output[key] = {'lat': value.lat, 'lon': value.lon}
-        elif isinstance(value, db.Model):
+        elif isinstance(value, ndb.Model):
             output[key] = to_dict(value)
         else:
             raise ValueError('cannot encode ' + repr(prop))
@@ -39,6 +39,8 @@ def beer_key(beer_name=DEFAULT_BEER_NAME):
     """
     return ndb.Key('Beer', beer_name)
 
+def brew_key(beer_name=DEFAULT_BEER_NAME):
+        return ndb.Key('Brew', beer_name)
 
 class Temp(ndb.Model):
     """A main model for representing an individual Guestbook entry."""
@@ -47,11 +49,34 @@ class Temp(ndb.Model):
     ambientTemperature = ndb.FloatProperty(indexed=False)
     targetTemperature = ndb.FloatProperty(indexed=False)
     status = ndb.TextProperty(indexed=False)
-    name = ndb.StringProperty(indexed=True)
+    name = ndb.StringProperty(indexed=False)
     date = ndb.DateTimeProperty(auto_now_add=True)
+
+class Brew(ndb.Model):
+    name = ndb.StringProperty
+    temps = ndb.LocalStructuredProperty(Temp, repeated=True)
 
 
 class BeerTemps(webapp2.RequestHandler):
+
+    def put(self):
+        beer_name = self.request.get('name', DEFAULT_BEER_NAME)
+        qry = Brew.query(ancestor=brew_key(beer_name))
+        brew = qry.get()
+        if (brew is None):
+            brew = Brew(parent=brew_key(beer_name))
+            brew.name = beer_name
+        temp = Temp()
+        temp.beerTemperature = float(self.request.get('beer',0))
+        temp.chillerTemperature = float(self.request.get('chiller',0))
+        temp.ambientTemperature = float(self.request.get('ambient',0))
+        temp.targetTemperature  = float(self.request.get('target',0))
+        temp.status = self.request.get('state','Unknown')
+        brew.temps.append(temp)
+        brew.put()
+        self.response.write("<html><body>" + beer_name + "</body></html>");
+
+
     def post(self):
         beer_name = self.request.get('name', DEFAULT_BEER_NAME)
         temp = Temp(parent=beer_key(beer_name))
@@ -61,7 +86,6 @@ class BeerTemps(webapp2.RequestHandler):
         temp.targetTemperature  = float(self.request.get('target',0))
         temp.status = self.request.get('state','Unknown')
         temp.name = beer_name
-
         temp.put()
         self.response.write("<html><body>" + beer_name + "</body></html>");
 
@@ -76,26 +100,43 @@ class BeerTemps(webapp2.RequestHandler):
         # ancestor from this query there would be a slight chance that
         # Greeting that had just been written would not show up in a
         # query.
-        temp_query = Temp.query(ancestor=beer_key(beer_name)).order(-Temp.date)
-        temps = temp_query.fetch(2000000)
-        self.response.write('[')
-        count = 0;
-        for temp in temps:
-            if (temp.beerTemperature is None):
-                continue
-            #self.response.write('<blockquote>%s</blockquote>' % to_dict(temp))
-            count = count +1
-            self.response.write("{\"beer\":" + str(temp.beerTemperature) + ", ")
-            self.response.write("\"chiller\":" + str(temp.chillerTemperature) + ", ")
-            self.response.write("\"ambient\":" + str(temp.ambientTemperature) + ", ")
-            self.response.write("\"status\":\"" + str(temp.status) + "\", ")
-            ms = time.mktime(temp.date.utctimetuple()) * 1000
-            ms += getattr(temp.date, 'microseconds', 0) / 1000
-            self.response.write("\"date\":" + str(int(ms)) + ", ")
-            self.response.write("\"target\":" + str(temp.targetTemperature) + "},\n")
-    	self.response.write("{\"end\":" + str(count) + "}]")
-
-
+        count=0
+        qry = Brew.query(ancestor=brew_key(beer_name))
+        brew = qry.get()
+        if (brew is not None):
+            temps = brew.temps
+            for temp in temps:
+                if (temp.beerTemperature is None):
+                    continue
+                #self.response.write('<blockquote>%s</blockquote>' % to_dict(temp))
+                count = count +1
+                self.response.write("{\"beer\":" + str(temp.beerTemperature) + ", ")
+                self.response.write("\"chiller\":" + str(temp.chillerTemperature) + ", ")
+                self.response.write("\"ambient\":" + str(temp.ambientTemperature) + ", ")
+                self.response.write("\"status\":\"" + str(temp.status) + "\", ")
+                ms = time.mktime(temp.date.utctimetuple()) * 1000
+                ms += getattr(temp.date, 'microseconds', 0) / 1000
+                self.response.write("\"date\":" + str(int(ms)) + ", ")
+                self.response.write("\"target\":" + str(temp.targetTemperature) + "},\n")
+        self.response.write("{\"end\":" + str(count) + "}]")
+        # temp_query = Temp.query(ancestor=beer_key(beer_name)).order(-Temp.date)
+        # temps = temp_query.fetch(2000000)
+        # self.response.write('[')
+        # count = 0;
+        # for temp in temps:
+         #    if (temp.beerTemperature is None):
+         #        continue
+         #    #self.response.write('<blockquote>%s</blockquote>' % to_dict(temp))
+         #    count = count +1
+         #    self.response.write("{\"beer\":" + str(temp.beerTemperature) + ", ")
+         #    self.response.write("\"chiller\":" + str(temp.chillerTemperature) + ", ")
+         #    self.response.write("\"ambient\":" + str(temp.ambientTemperature) + ", ")
+         #    self.response.write("\"status\":\"" + str(temp.status) + "\", ")
+         #    ms = time.mktime(temp.date.utctimetuple()) * 1000
+         #    ms += getattr(temp.date, 'microseconds', 0) / 1000
+         #    self.response.write("\"date\":" + str(int(ms)) + ", ")
+         #    self.response.write("\"target\":" + str(temp.targetTemperature) + "},\n")
+    	# self.response.write("{\"end\":" + str(count) + "}]")
 
 class MainHandler(webapp2.RequestHandler):
     def get(self):
